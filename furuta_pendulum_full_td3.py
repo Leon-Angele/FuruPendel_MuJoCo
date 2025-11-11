@@ -74,7 +74,7 @@ if train_model:
     )
 
     print("Starte TD3 Training...")
-    model.learn(total_timesteps=50_000_000, progress_bar=True)
+    model.learn(total_timesteps=10_000_000, progress_bar=True)
     model.save("furuta_pendulum_rl/trained_agents/furuta_pendulum_full")
     
 else:

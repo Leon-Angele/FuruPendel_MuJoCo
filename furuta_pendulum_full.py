@@ -22,8 +22,8 @@ class FurutaPendulumEnv(MujocoEnv, utils.EzPickle):
 
         # === OPTION 2: Unterschiedliche Grenzen ===
         observation_space = Box(
-            low=np.array([-1.0, -1.0, -np.inf, -1.0, -1.0, -np.inf]),
-            high=np.array([1.0, 1.0, np.inf, 1.0, 1.0, np.inf]),
+            low=np.array([-1.0, -1.0, -np.inf]),
+            high=np.array([1.0, 1.0, np.inf]),
             dtype=np.float32,
         )
 
@@ -125,7 +125,7 @@ class FurutaPendulumEnv(MujocoEnv, utils.EzPickle):
         )
 
     def _get_obs(self):
-            theta = self.data.qpos[0] # Rotor
+            #theta = self.data.qpos[0] # Rotor
             phi   = self.data.qpos[1] # Pendel
 
             theta_dot = self.data.qvel[0]
@@ -138,12 +138,12 @@ class FurutaPendulumEnv(MujocoEnv, utils.EzPickle):
             obs = np.array([
                 np.cos(phi),          # 0: Pendel Oben/Unten
                 np.sin(phi),          # 1: Pendel Links/Rechts
-                phi_dot_norm,         # 2: Pendel Geschwindigkeit
+                phi_dot,         # 2: Pendel Geschwindigkeit
                 
                 # === HINZUGEFÜGT ===
-                np.cos(theta),        # 3: Rotor Position (cos)
-                np.sin(theta),        # 4: Rotor Position (sin)
-                theta_dot_norm,       # 5: Rotor Geschwindigkeit
+               #np.cos(theta),        # 3: Rotor Position (cos)
+               #np.sin(theta),        # 4: Rotor Position (sin)
+                #theta_dot_norm,       # 5: Rotor Geschwindigkeit
             ], dtype=np.float32)
 
             return obs
@@ -151,36 +151,16 @@ class FurutaPendulumEnv(MujocoEnv, utils.EzPickle):
     def calculate_reward_swingup(self, obs: np.array, a: np.array):
             
             # Entpacke die Observation (jetzt 6D)
-            cos_phi, sin_phi, phi_dot_norm, cos_theta, sin_theta, theta_dot_norm = obs
+            cos_phi, sin_phi, phi_dot_norm = obs
 
             # 1. BELOHNE HÖHE (Hauptziel)
             # (cos_phi ist 1.0 oben, -1.0 unten)
             height_reward = cos_phi 
-            
-            # 2. BESTRAFE AKTIONEN (Energieverbrauch)
-            # Mache die Strafen viel kleiner, damit sie die height_reward nicht dominieren.
-            
+
             torque = a[0]
             action_penalty = -0.01 * torque**2 # Reduziert von 0.05
 
-            # 3. BESTRAFE MOTOR-GESCHWINDIGKEIT (optional, aber gut für Effizienz)
-            # Wir bestrafen die Motor-Geschwindigkeit (theta_dot), 
-            # NICHT die Pendel-Geschwindigkeit (phi_dot)
-            
-            # Skaliere theta_dot_norm zurück für die Strafe (optional, aber genauer)
-            # theta_dot = theta_dot_norm * self._max_velocity_joint0
-            # motor_speed_penalty = -0.001 * theta_dot_norm**2 # SEHR kleine Strafe
-            
-            # ODER: Entferne die Geschwindigkeitsstrafe GANZ, um Swing-Up zu ermutigen
-            speed_penalty = 0.0
-
-            # ALT (Das Problem):
-            # phi_dot = phi_dot_norm * self._max_velocity_joint1
-            # speed_penalty = -0.01 * phi_dot**2 # <-- Dominierendes Problem
-
-            # Die Belohnung ist primär die Höhe,
-            # leicht bestraft durch den Energieaufwand.
-            reward = height_reward + action_penalty # + motor_speed_penalty
+            reward = height_reward + action_penalty 
             
             return float(reward)
 
