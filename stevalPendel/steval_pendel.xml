@@ -40,8 +40,8 @@
         <geom pos="0 0 0.32" quat="1.32679e-06 1 0 0" type="mesh" rgba="0.372549 0.654902 0.239216 1" mesh="rotary" contype="1" conaffinity="0" density="0" group="1" class="visualgeom" />
         <geom type="mesh" rgba="0.372549 0.654902 0.239216 1" mesh="rotary" pos="0 0 0.32" quat="1.32679e-06 1 0 0" />
         
-        <body name="pendel" pos="0 -0.015 -0.02" quat="0.707105 -0.707108 0 0">
-          <inertial pos="0 -0.0771612 -0.10421" quat="0.543661 0.839305 0 0" mass="0.0362517" diaginertia="0.000359053 0.000313828 4.56366e-05" />
+        <body name="pendel" pos="0 -0.015 -0.02" quat="0.707106 0.707106 0 0">
+         <inertial pos="0 -0.13 0" quat="0.707106 0.707106 0 0" mass="0.0362517" diaginertia="0.000359053 0.000313828 4.56366e-05" />
           <joint name="pendel" pos="0 0 0" axis="0 0 1" limited="false" />
           <geom pos="0 -0.34 0.015" quat="0.707105 -0.707108 0 0" type="mesh" rgba="1 0 0 1" mesh="pendel" contype="1" conaffinity="0" density="0" group="1" class="visualgeom" />
           <geom type="mesh" rgba="1 0 0 1" mesh="pendel" pos="0 -0.34 0.015" quat="0.707105 -0.707108 0 0" />

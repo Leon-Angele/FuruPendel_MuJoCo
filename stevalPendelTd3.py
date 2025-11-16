@@ -84,14 +84,13 @@ def train():
     if TENSORBOARD_LOG:
         os.makedirs(TENSORBOARD_LOG, exist_ok=True)
 
-    # Create vectorized env
-    env = make_vec_env(make_env(), n_envs=1)
+    # Create single environment instance
+    env = StevalPendelEnv(render_mode=None)
 
     # Build action noise if requested
     action_noise = None
     if ACTION_NOISE_STD and ACTION_NOISE_STD > 0.0:
-        single_env = StevalPendelEnv()
-        action_noise = get_action_noise(single_env, ACTION_NOISE_STD)
+        action_noise = get_action_noise(env, ACTION_NOISE_STD)
 
     model = TD3(
         policy=POLICY,
@@ -128,7 +127,9 @@ def evaluate():
     # Create env with human rendering if RENDER True so env.render() uses MuJoCo viewer
     env = StevalPendelEnv(render_mode='human' if RENDER else None)
 
-    model = TD3.load(MODEL_PATH, env=make_vec_env(make_env(render_mode='human' if RENDER else None), n_envs=1))
+    # Load model and set env
+    model = TD3.load(MODEL_PATH)
+    model.set_env(env)
 
     all_rewards = []
     for ep in range(EVAL_EPISODES):

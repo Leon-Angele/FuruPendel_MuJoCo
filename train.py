@@ -1,228 +1,152 @@
-"""TD3 training and evaluation script for the Steval rotary inverted pendulum.
+"""Train script for StevalPendelEnv using Stable-Baselines3 TD3.
 
-All training / evaluation hyperparameters are defined at the top of this file
-so you can easily edit them. `main()` only accepts a single argument: the
-mode, either `train` or `eval`.
+This script provides configurable hyperparameters at the top, wraps the
+environment with a Monitor for logging, writes tensorboard logs, uses
+verbose=2 and shows a tqdm progress bar during training.
 
-Note: This script assumes `stevalPendelEnv.py` is in the same folder and provides
-the `StevalPendelEnv` class returning observations [cos(theta), sin(theta), theta_dot].
+Usage examples:
+  python train.py
+  python train.py --total-timesteps 500000
+
+Make sure you have a Python environment with: stable-baselines3, gymnasium,
+tqdm, tensorboard, and mujoco installed.
 """
 
-# ---------------------- Hyperparameters / Defaults ----------------------
-# Edit these constants to change training / evaluation behaviour.
-TOTAL_TIMESTEPS = 100_000
-LEARNING_RATE = 1e-3
-BUFFER_SIZE = 1_000_000
-BATCH_SIZE = 100
-TAU = 0.005
-GAMMA = 0.99
-TRAIN_FREQ = 1
-GRADIENT_STEPS = 1
-LEARNING_STARTS = 100
-POLICY = 'MlpPolicy'
-# Set POLICY_KWARGS to a dict, e.g. {"net_arch": [64,64]} or None
-POLICY_KWARGS = None
-ACTION_NOISE_STD = 0.2
-TENSORBOARD_LOG = "./logs"
-SAVE_PATH = "td3_steval.zip"
-MODEL_PATH = "td3_steval.zip"
-EVAL_EPISODES = 5
-RENDER = False
-RENDER_PAUSE = 0.02
-DEVICE = "auto"
-NUM_ENVS = 12
-SEED = 0
-# -----------------------------------------------------------------------
-
+from pathlib import Path
 import argparse
-import json
-import math
 import os
+import sys
 import time
-from typing import Optional
 
-import matplotlib.pyplot as plt
-import numpy as np
-
+import gymnasium as gym
 from stable_baselines3 import TD3
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.noise import NormalActionNoise
-from stable_baselines3.common import logger as sb3_logger
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback
-import logging
+from stable_baselines3.common.logger import configure
+from stable_baselines3.common.vec_env import DummyVecEnv
+from tqdm import tqdm
+
+# Make sure local package can be imported for the custom env
+ROOT = Path(__file__).parent
+sys.path.append(str(ROOT))
 
 from stevalPendelEnv import StevalPendelEnv
 
 
-def make_env(seed: Optional[int] = None):
-    return lambda: StevalPendelEnv()
+# =========================
+# Hyperparameters (edit here)
+# =========================
+ENV_ID = "StevalPendel-v0"
+TOTAL_TIMESTEPS = 50_000
+LEARNING_RATE = 1e-3
+BUFFER_SIZE = 100_000
+BATCH_SIZE = 256
+POLICY_NOISE = 0.2
+NOISE_CLIP = 0.5
+POLICY_FREQ = 2
+GAMMA = 0.99
+TAU = 0.005
+VERBOSE = 2
+TENSORBOARD_LOG_DIR = str(ROOT / "logs" / "tb")
+MODEL_SAVE_PATH = str(ROOT / "models" / "td3_steval_pendel")
+MONITOR_DIR = str(ROOT / "logs" / "monitor")
 
 
-def get_action_noise(env, sigma: float):
-    # TD3 expects an action noise object; for single-dim action use NormalActionNoise
-    n_actions = env.action_space.shape[-1]
-    return NormalActionNoise(mean=np.zeros(n_actions), sigma=sigma * np.ones(n_actions))
+class TQDMProgressBarCallback(BaseCallback):
+	"""Progress bar callback that updates a tqdm bar using timesteps.
+
+	It expects `total_timesteps` to be provided via the callback's `__init__`.
+	"""
+	def __init__(self, total_timesteps: int, verbose=0):
+		super().__init__(verbose)
+		self.total_timesteps = int(total_timesteps)
+		self.pbar = None
+
+	def _on_training_start(self) -> None:
+		# Create progress bar at start
+		self.pbar = tqdm(total=self.total_timesteps, desc="Training", unit="steps")
+
+	def _on_step(self) -> bool:
+		# Update bar by number of environment steps in this call
+		# `self.num_timesteps` is the total timesteps done so far
+		if self.pbar is None:
+			return True
+		self.pbar.n = min(self.num_timesteps, self.total_timesteps)
+		self.pbar.refresh()
+		return True
+
+	def _on_training_end(self) -> None:
+		if self.pbar is not None:
+			self.pbar.close()
 
 
-def simple_render(obs, ax, line):
-    # obs: [cos(theta), sin(theta), theta_dot]
-    cos_theta, sin_theta = float(obs[0]), float(obs[1])
-    theta = math.atan2(sin_theta, cos_theta)
-    x = math.sin(theta)
-    y = math.cos(theta)
-    line.set_data([0.0, x], [0.0, y])
-    return
-
-
-def setup_matplotlib():
-    plt.ion()
-    fig, ax = plt.subplots()
-    ax.set_xlim(-1.2, 1.2)
-    ax.set_ylim(-1.2, 1.2)
-    ax.set_aspect('equal')
-    line, = ax.plot([0, 0], [0, 1], marker='o', lw=4)
-    return fig, ax, line
-
-
-def train():
-    if TENSORBOARD_LOG:
-        os.makedirs(TENSORBOARD_LOG, exist_ok=True)
-
-    # Configure sb3 logger to include tensorboard if possible, otherwise ensure stdout
-    try:
-        sb3_logger.configure(folder=TENSORBOARD_LOG, format_strs=['stdout', 'tensorboard'])
-    except TypeError:
-        # signature may not accept format_strs; fall back
-        try:
-            sb3_logger.configure(folder=TENSORBOARD_LOG)
-        except Exception:
-            pass
-
-    # Ensure Python logging prints INFO to stdout
-    root_logger = logging.getLogger()
-    if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
-        sh = logging.StreamHandler()
-        sh.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        sh.setFormatter(formatter)
-        root_logger.addHandler(sh)
-    root_logger.setLevel(logging.INFO)
-
-    # Create NUM_ENVS Monitor-wrapped envs that write monitor files into the tensorboard folder
-    env_fns = []
-    for i in range(NUM_ENVS):
-        def make_fn(i):
-            def _init():
-                e = StevalPendelEnv()
-                monitor_path = os.path.join(TENSORBOARD_LOG, f"monitor_{i}.csv")
-                return Monitor(e, filename=monitor_path)
-            return _init
-        env_fns.append(make_fn(i))
-
-    env = DummyVecEnv(env_fns)
-
-    # Build action noise if requested
-    action_noise = None
-    if ACTION_NOISE_STD and ACTION_NOISE_STD > 0.0:
-        single_env = StevalPendelEnv()
-        action_noise = get_action_noise(single_env, ACTION_NOISE_STD)
-
-    model = TD3(
-        policy=POLICY,
-        env=env,
-        learning_rate=LEARNING_RATE,
-        buffer_size=BUFFER_SIZE,
-        batch_size=BATCH_SIZE,
-        tau=TAU,
-        gamma=GAMMA,
-        train_freq=TRAIN_FREQ,
-        gradient_steps=GRADIENT_STEPS,
-        learning_starts=LEARNING_STARTS,
-        action_noise=action_noise,
-        policy_kwargs=POLICY_KWARGS,
-        verbose=2,
-        tensorboard_log=TENSORBOARD_LOG,
-        seed=SEED,
-        device=DEVICE,
-    )
-
-    print(f"Starting training for {TOTAL_TIMESTEPS} timesteps...")
-    # Callback prints episode summaries from Monitor and records to sb3 logger (also to tensorboard)
-    class EpisodeLoggerCallback(BaseCallback):
-        def __init__(self, verbose=0):
-            super().__init__(verbose)
-
-        def _on_step(self) -> bool:
-            infos = self.locals.get('infos')
-            if infos:
-                for info in infos:
-                    if info and 'episode' in info:
-                        ep = info['episode']
-                        # Print a concise line for each finished episode
-                        print(f"Episode finished - reward: {ep['r']:.3f}, length: {ep['l']}")
-                        try:
-                            sb3_logger.record('episode_reward', float(ep['r']))
-                            sb3_logger.record('episode_length', int(ep['l']))
-                            sb3_logger.dump(step=self.num_timesteps)
-                        except Exception:
-                            pass
-            return True
-
-    callback = EpisodeLoggerCallback()
-    model.learn(total_timesteps=TOTAL_TIMESTEPS, progress_bar=True, callback=callback)
-
-    save_path = SAVE_PATH
-    model.save(save_path)
-    print(f"Model saved to: {save_path}")
-    env.close()
-
-
-def evaluate():
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
-    # Create environment with human render mode so env.render() uses MuJoCo viewer
-    env = StevalPendelEnv(render_mode='human')
-
-    # Load model (no need to pass env to load)
-    model = TD3.load(MODEL_PATH)
-
-    all_rewards = []
-    for ep in range(EVAL_EPISODES):
-        obs, info = env.reset()
-        terminated = False
-        truncated = False
-        ep_reward = 0.0
-        while True:
-            action, _states = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            ep_reward += float(reward)
-            # Render using env.render(); StevalPendelEnv will try the MuJoCo viewer first
-            try:
-                env.render()
-            except Exception:
-                # ignore render failures during evaluation
-                pass
-            if terminated or truncated:
-                break
-        all_rewards.append(ep_reward)
-        print(f"Episode {ep+1}/{EVAL_EPISODES} reward: {ep_reward}")
-
-    env.close()
-    print(f"Average reward over {EVAL_EPISODES} episodes: {np.mean(all_rewards)}")
+def make_env(render_mode=None):
+	def _init():
+		env = StevalPendelEnv(render_mode=render_mode)
+		return env
+	return _init
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train or evaluate TD3 on the Steval Pendulum environment.")
-    parser.add_argument("mode", choices=["train", "eval"], help="Operation mode: train or eval")
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--total-timesteps", type=int, default=TOTAL_TIMESTEPS)
+	parser.add_argument("--tensorboard-log", type=str, default=TENSORBOARD_LOG_DIR)
+	parser.add_argument("--save-path", type=str, default=MODEL_SAVE_PATH)
+	parser.add_argument("--render", action="store_true", help="Run env in human render mode during training (slows down)")
+	args = parser.parse_args()
 
-    args = parser.parse_args()
-    if args.mode == 'train':
-        train()
-    else:
-        evaluate()
+	total_timesteps = args.total_timesteps
+
+	# Create folders
+	Path(args.tensorboard_log).mkdir(parents=True, exist_ok=True)
+	Path(MONITOR_DIR).mkdir(parents=True, exist_ok=True)
+	Path(args.save_path).parent.mkdir(parents=True, exist_ok=True)
+
+	# Vectorized env with Monitor
+	render_mode = "human" if args.render else None
+	env = DummyVecEnv([make_env(render_mode=render_mode)])
+	# Wrap with Monitor for logging episode rewards & lengths
+	env.envs[0] = Monitor(env.envs[0], filename=os.path.join(MONITOR_DIR, "monitor.csv"))
+
+	# Logger for stable-baselines3
+	new_logger = configure(folder=args.tensorboard_log, format_strings=["stdout", "tensorboard"])
+
+	# Model
+	policy_kwargs = dict()
+	model = TD3(
+		"MlpPolicy",
+		env,
+		learning_rate=LEARNING_RATE,
+		buffer_size=BUFFER_SIZE,
+		batch_size=BATCH_SIZE,
+		gamma=GAMMA,
+		tau=TAU,
+		policy_noise=POLICY_NOISE,
+		noise_clip=NOISE_CLIP,
+		policy_freq=POLICY_FREQ,
+		verbose=VERBOSE,
+		tensorboard_log=args.tensorboard_log,
+		policy_kwargs=policy_kwargs,
+	)
+	model.set_logger(new_logger)
+
+	# Callbacks
+	tqdm_cb = TQDMProgressBarCallback(total_timesteps)
+
+	# Train
+	print(f"Starting training for {total_timesteps} timesteps")
+	start = time.time()
+	model.learn(total_timesteps=total_timesteps, callback=tqdm_cb)
+	duration = time.time() - start
+
+	# Save
+	model.save(args.save_path)
+	print(f"Model saved to {args.save_path}")
+	print(f"Training took {duration:.1f} seconds")
+
+	env.close()
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+	main()
+
