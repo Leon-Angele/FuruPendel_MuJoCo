@@ -4,7 +4,7 @@ import subprocess
 import os
 
 # Pfade
-MODEL_PATH = r"C:\Users\leona\Desktop\FuruPendel_MuJoCo\Pendel_description\FuruPendel.xml"
+MODEL_PATH = r"C:\Users\leona\Desktop\FuruPendel_MuJoCo\Pendel_description\urdf\robot.xml"
 MUJOCO_BIN = r"C:\MuJoCo\bin\simulate.exe"  # <-- passe an, falls anders
 
 # 1. Prüfen: Datei da?

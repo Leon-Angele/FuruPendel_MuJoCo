@@ -1,0 +1,25 @@
+<mujoco model="Pendel">
+  <compiler angle="radian"/>
+
+  <option gravity="0 0 9.81"/>
+
+  <asset>
+    <mesh name="base_link" content_type="model/stl" file="base_link.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="Pendel_1" content_type="model/stl" file="Pendel_1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="Encoder_1" content_type="model/stl" file="Encoder_1.stl" scale="0.001 0.001 0.001"/>
+  </asset>
+
+  <worldbody>
+    <geom type="mesh" mesh="base_link"/>
+    <body name="Encoder_1" pos="0 0 0.316">
+      <inertial pos="-1.742e-08 -0.005037 0.335009" quat="0.499134 0.499666 -0.500865 0.500334" mass="0.053345" diaginertia="1.2473e-05 1.24655e-05 1.0649e-05"/>
+      <joint name="rotaryGelenk" pos="0 0 0" axis="0 0 1" range="-6.28318 6.28318" actuatorfrcrange="-100 100"/>
+      <geom pos="0 0 -0.316" quat="1 0 0 0" type="mesh" mesh="Encoder_1"/>
+      <body name="Pendel_1" pos="0 -0.0295 0.019002">
+        <inertial pos="0 -0.139956 0.249946" quat="0.984849 -0.173413 0 0" mass="0.035417" diaginertia="0.00036 0.000318333 4.20635e-05"/>
+        <joint name="pendelGelenk" pos="0 0 0" axis="0 -1 0"/>
+        <geom pos="0 0.0295 -0.335002" type="mesh" mesh="Pendel_1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

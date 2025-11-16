@@ -3,6 +3,8 @@
 
     <mujoco>
         <compiler balanceinertia="true"/>
+        
+        <option gravity="0 0 9.81"/>
     </mujoco>
 
     <link name="base_link">
